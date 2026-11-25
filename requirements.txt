@@ -9,7 +9,11 @@
 #   pip install -r requirements.txt
 
 openai>=1.82.0
-anthropic>=0.49.0
+# agentdojo's AnthropicLLM targets the 0.x/1.x Messages API (it instantiates
+# anthropic.types.MessageParam, which became a non-instantiable Union in anthropic 2.x),
+# so cap below 2.0 for the native Anthropic path. To use anthropic 2.x anyway, route the
+# model through an OpenAI-compatible endpoint instead (openai:<name> + OPENAI_BASE_URL).
+anthropic>=0.49.0,<2
 google-genai>=1.0.0
 httpx>=0.27.0
 python-dotenv>=1.1.0

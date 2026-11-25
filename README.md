@@ -73,6 +73,7 @@ python -c "from agentdojo.task_suite.load_suites import get_suites; print(sorted
 | `MODEL` example | Provider / env |
 | --- | --- |
 | `gpt-4o-2024-08-06` | OpenAI (`OPENAI_API_KEY`, optional `OPENAI_BASE_URL`) |
+| `openai:<any-name>` | OpenAI client forced for **any** model name — use this for a custom OpenAI-compatible endpoint whose served model is not named `gpt-*` (`OPENAI_API_KEY`, `OPENAI_BASE_URL`) |
 | `anthropic:claude-sonnet-4-5-20250929` | Anthropic (`ANTHROPIC_API_KEY`) |
 | `gemini-2.5-pro` | Google Vertex (`GCP_PROJECT`, `GCP_LOCATION` + ADC), or `OPENAI_BASE_URL` relay |
 | `meta-llama/llama-3.3-70b-instruct` | OpenRouter (`OPENROUTER_API_KEY`) |
@@ -80,6 +81,11 @@ python -c "from agentdojo.task_suite.load_suites import get_suites; print(sorted
 
 FIDES uses the model's **native** tool-calling API. For a local server without native tool
 support, set `FIDES_LOCAL_PROMPTED=1` to use AgentDojo's prompted tool-call path instead.
+
+> **Note (Anthropic):** AgentDojo's native `AnthropicLLM` targets the anthropic 0.x/1.x
+> Messages API and breaks on `anthropic>=2.x` (where `MessageParam` is no longer
+> instantiable). `requirements.txt` therefore caps `anthropic<2`. If you must use anthropic
+> 2.x, route Claude through an OpenAI-compatible gateway with `openai:<name>` instead.
 
 ### How to run
 
