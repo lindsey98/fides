@@ -149,11 +149,23 @@ Each JSON records `suite_name`, `pipeline_name`, `user_task_id`, `injection_task
 `attack_type`, `injections`, `defense`, `policy`, `fides_events` (the per-tool label +
 block/execute decisions), `conversations` (the message trace), `utility`, `security`,
 `injection_happened`, and `duration`. Finished tasks are skipped on re-run unless
-`--force-rerun` is passed. Aggregate into a table with:
+`--force-rerun` is passed.
+
+`print_results.py` aggregates these JSONs and is paired with `threat_model.py` (the same
+trust-separation threat model the sibling baselines use). **Under attack it counts only the
+tasks the threat model admits** (`--filter inscope`, the default) — injectable tasks whose
+payload is separable from the task's trusted content (`threat_model.qualifying_tasks`) — so
+the reported ASR is over the in-scope set, not every AgentDojo pair. `--filter none` counts
+every task; utility (no attack) is always over the full set.
 
 ```bash
-python print_results.py <model>+fides --logdir ./logs
-python print_results.py gpt-4o-2024-08-06+fides --attack important_instructions
+# by model name (mapped to its run dir); --defense picks fides vs the undefended run
+python print_results.py --model local:Qwen3.6-35B-A3B --defense fides \
+    --suites banking slack travel workspace
+# by exact run-dir name, and a different attack
+python print_results.py --name Qwen3.6-35B-A3B+fides --attack tool_knowledge
+# compare fides vs none (and any other run dirs) side by side
+python print_results.py --discover Qwen3.6-35B-A3B
 ```
 
 ## Citation
