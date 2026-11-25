@@ -183,10 +183,23 @@ def main() -> None:
                     continue
 
                 injections = attack.attack(user_task, injection_task) if (attack and injection_task is not None) else {}
+                capture.messages, capture.fides_events = [], []
                 t0 = time.time()
-                utility, security, injection_happened, _, _ = suite.run_task_with_pipeline(
-                    pipeline, user_task, injection_task, injections
-                )
+                err = None
+                try:
+                    utility, security, injection_happened, _, _ = suite.run_task_with_pipeline(
+                        pipeline, user_task, injection_task, injections
+                    )
+                except Exception as e:
+                    # A task-level failure (e.g. a model/API error) must not crash the whole
+                    # run or leave empty logs: record it as a failed task and continue.
+                    import traceback
+
+                    utility, security, injection_happened = False, False, False
+                    err = f"{type(e).__name__}: {e}"
+                    print(f"[{suite_name}] user_task_{ut_n} ERROR: {err}", flush=True)
+                    if os.getenv("FIDES_LOG_LEVEL", "").upper() == "DEBUG":
+                        traceback.print_exc()
                 duration = time.time() - t0
                 suite_u.append(utility); suite_s.append(security)
 
@@ -205,6 +218,7 @@ def main() -> None:
                     "utility": utility,
                     "security": security,
                     "injection_happened": injection_happened,
+                    "error": err,
                     "duration": duration,
                 }
                 _dump_record(record, result_path)
