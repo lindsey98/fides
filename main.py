@@ -65,8 +65,16 @@ def parse_args() -> argparse.Namespace:
 
 def model_dir_name(args) -> str:
     """Output sub-directory for a run: '<model>+fides' when the FIDES defense is on, the
-    bare '<model>' otherwise (the undefended original model). Mirrors DRIFT's get_model_dir."""
-    base = args.model.replace("/", "_")
+    bare '<model>' otherwise (the undefended original model). Mirrors DRIFT's get_model_dir.
+
+    The provider prefix (local:/openai:/anthropic:) is stripped and path-unsafe characters
+    are sanitized, so `local:Qwen3.6-35B-A3B` -> `Qwen3.6-35B-A3B[+fides]`."""
+    base = args.model
+    for pre in ("local:", "openai:", "anthropic:"):
+        if base.startswith(pre):
+            base = base[len(pre):]
+            break
+    base = base.replace("/", "_").replace(":", "_")
     return f"{base}+fides" if args.defense == "fides" else base
 
 
