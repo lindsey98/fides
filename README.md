@@ -134,13 +134,26 @@ straightforward to extend for new suites or tools.
 
 ### Results
 
-Per-suite and overall utility / security are printed as the run proceeds. AgentDojo's own
-per-task JSON traces are written under `logs/<model>/<suite>/...`, and a compact machine-readable
-summary per `(model, defense, policy, attack, suite)` under `logs/_fides_summary/`. Aggregate it
-into a table with:
+Per-suite and overall utility / security are printed as the run proceeds. Results are also
+written **one JSON per task**, DRIFT-style, under a top-level directory that encodes the
+defense — `<model>+fides` when the FIDES defense is on, the bare `<model>` for the
+undefended model:
+
+```
+logs/<model>+fides/<suite>/user_task_<i>/<attack>/injection_task_<j>.json   # under attack
+logs/<model>+fides/<suite>/user_task_<i>/none/none.json                     # benign
+logs/<model>/<suite>/...                                                    # --defense none
+```
+
+Each JSON records `suite_name`, `pipeline_name`, `user_task_id`, `injection_task_id`,
+`attack_type`, `injections`, `defense`, `policy`, `fides_events` (the per-tool label +
+block/execute decisions), `conversations` (the message trace), `utility`, `security`,
+`injection_happened`, and `duration`. Finished tasks are skipped on re-run unless
+`--force-rerun` is passed. Aggregate into a table with:
 
 ```bash
-python print_results.py --logdir ./logs
+python print_results.py <model>+fides --logdir ./logs
+python print_results.py gpt-4o-2024-08-06+fides --attack important_instructions
 ```
 
 ## Citation

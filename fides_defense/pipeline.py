@@ -81,7 +81,9 @@ class FidesToolsLoop(BasePipelineElement):
         # The user's own instruction is the trusted, public bottom of the lattice.
         current_label: Label = trusted_public()
         trace: list[tuple[Any, Label]] = []
-        events: list[dict[str, Any]] = extra_args.setdefault("fides_events", [])
+        # Reset per task (run_task_with_pipeline reuses one extra_args dict across tasks).
+        extra_args["fides_events"] = []
+        events: list[dict[str, Any]] = extra_args["fides_events"]
 
         for _ in range(self.max_iters):
             if len(messages) == 0:
