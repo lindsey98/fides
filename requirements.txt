@@ -1,5 +1,17 @@
-azure-identity>=1.23.0
-docstring-parser>=0.16
+# FIDES defense baseline -- AgentDojo / AgentDyn harness dependencies.
+#
+# agentdojo is installed SEPARATELY from the lindsey98 / AgentDyn fork (same import name,
+# bundles the 7 suites + extra attacks) and is intentionally NOT pinned here so this file
+# never re-fetches it over the network. See README > Setup.
+#
+#   git clone https://github.com/lindsey98/agentdojo.git
+#   pip install -e ./agentdojo
+#   pip install -r requirements.txt
+
 openai>=1.82.0
+anthropic>=0.49.0
+google-genai>=1.0.0
+httpx>=0.27.0
 python-dotenv>=1.1.0
-ipykernel>=6.29.5
+rich>=13.0.0
+docstring-parser>=0.16
