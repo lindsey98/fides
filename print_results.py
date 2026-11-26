@@ -32,11 +32,6 @@ DEFAULT_SUITES = ["banking", "slack", "travel", "workspace"]
 def model_dir_name(model: str, defense: str) -> str:
     """Same mapping main.py uses: strip provider prefix, sanitize, add '+fides' when defended."""
     base = model
-    for pre in ("local:", "openai:", "anthropic:"):
-        if base.startswith(pre):
-            base = base[len(pre):]
-            break
-    base = base.replace("/", "_").replace(":", "_")
     return f"{base}+fides" if defense == "fides" else base
 
 
@@ -149,12 +144,12 @@ def print_table(title: str, results: dict, task_filter: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Summarize FIDES AgentDojo results (utility/security per suite).")
-    parser.add_argument("--model", default=None, help="Model name (same as passed to main.py); mapped to its run dir with --defense.")
+    parser.add_argument("--model", default="local:Qwen3.6-35B-A3B", help="Model name (same as passed to main.py); mapped to its run dir with --defense.")
     parser.add_argument("--defense", choices=("fides", "none"), default="fides", help="Which run dir of --model to read (fides -> <model>+fides, none -> <model>).")
     parser.add_argument("--name", default=None, help="Exact run-directory name under --log-dir (overrides --model/--defense).")
     parser.add_argument("--log-dir", default="logs")
     parser.add_argument("--suites", nargs="+", default=DEFAULT_SUITES, help="Suites to summarize (add shopping github dailylife for AgentDyn).")
-    parser.add_argument("--attack", nargs="+", default=["important_instructions"], help="Attack label(s) to report (dir names). Use e.g. tool_knowledge.")
+    parser.add_argument("--attack", nargs="+", default=["important_instructions", "tool_knowledge"], help="Attack label(s) to report (dir names). Use e.g. tool_knowledge.")
     parser.add_argument("--filter", choices=("inscope", "none"), default="inscope",
                         help="inscope: count only tasks the trust-separation threat model admits (threat_model.qualifying_tasks); none: all tasks.")
     parser.add_argument("--discover", default=None, help="Compare mode: substring of run dirs to collect and print side by side.")

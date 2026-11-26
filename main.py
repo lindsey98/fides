@@ -71,14 +71,10 @@ def model_dir_name(args) -> str:
     """Output sub-directory for a run: '<model>+fides' when the FIDES defense is on, the
     bare '<model>' otherwise (the undefended original model). Mirrors DRIFT's get_model_dir.
 
-    The provider prefix (local:/openai:/anthropic:) is stripped and path-unsafe characters
-    are sanitized, so `local:Qwen3.6-35B-A3B` -> `Qwen3.6-35B-A3B[+fides]`."""
+    The model string is used verbatim (provider prefix kept, no sanitization), so
+    `local:Qwen3.6-35B-A3B` -> `local:Qwen3.6-35B-A3B[+fides]`. print_results.model_dir_name
+    uses the same mapping, so the written and read directory names stay in sync."""
     base = args.model
-    for pre in ("local:", "openai:", "anthropic:"):
-        if base.startswith(pre):
-            base = base[len(pre):]
-            break
-    base = base.replace("/", "_").replace(":", "_")
     if args.defense != "fides":
         return base
     # The full (paper) planner is the default and keeps the plain '+fides' dir; the
