@@ -132,11 +132,13 @@ class _CaptureMessages:
         self.messages = []
         self.fides_events = []
         self.pllm_messages = []
+        self.token_usage = {}
 
     def query(self, query, runtime, env, messages, extra_args={}):
         self.messages = list(messages)
         self.fides_events = list(extra_args.get("fides_events", []))
         self.pllm_messages = list(extra_args.get("pllm_messages", []))
+        self.token_usage = dict(extra_args.get("token_usage", {}))
         return query, runtime, env, messages, extra_args
 
 
@@ -216,6 +218,7 @@ def main() -> None:
 
                 injections = attack.attack(user_task, injection_task) if (attack and injection_task is not None) else {}
                 capture.messages, capture.fides_events, capture.pllm_messages = [], [], []
+                capture.token_usage = {}
                 t0 = time.time()
                 err = None
                 try:
@@ -253,6 +256,9 @@ def main() -> None:
                     "security": security,
                     "injection_happened": injection_happened,
                     "error": err,
+                    "prompt_tokens": capture.token_usage.get("prompt_tokens", 0),
+                    "completion_tokens": capture.token_usage.get("completion_tokens", 0),
+                    "total_tokens": capture.token_usage.get("total_tokens", 0),
                     "duration": duration,
                 }
                 _dump_record(record, result_path)

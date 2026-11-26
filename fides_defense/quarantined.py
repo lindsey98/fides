@@ -41,6 +41,7 @@ def q_extract(
     question: str,
     fields: list[str],
     temperature: float | None = 0.0,
+    on_usage: Any = None,
 ) -> dict[str, Any]:
     """Run the quarantined LLM over ``data`` and return ``{field: value}`` for ``fields``.
 
@@ -70,6 +71,8 @@ def q_extract(
             # Server may not support response_format; retry without it.
             kwargs.pop("response_format", None)
             completion = client.chat.completions.create(**kwargs)
+        if on_usage is not None:
+            on_usage(getattr(completion, "usage", None))
         content = completion.choices[0].message.content or "{}"
         parsed = _loads_loose(content)
         if not isinstance(parsed, dict):

@@ -107,6 +107,8 @@ class FidesFullPipeline(BasePipelineElement):
         store = VarStore()
         planner_label: Label = trusted_public()
         events: list[dict] = []
+        # Per-task token accounting (P-LLM planner calls + Q-LLM extractions), reset each query.
+        self._tok = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         tools_by_name = {f.name: f for f in runtime.functions.values()}
 
         system = (self.base_system_message + "\n\n" + FIDES_PROTOCOL).strip()
@@ -160,7 +162,19 @@ class FidesFullPipeline(BasePipelineElement):
         # reference). Complements `conversations`, which is the AgentDojo side (resolved args, raw
         # tool outputs).
         extra_args["pllm_messages"] = pllm
+        extra_args["token_usage"] = dict(self._tok)
         return query, runtime, env, ad_messages, extra_args
+
+    def _add_usage(self, usage: Any) -> None:
+        """Accumulate one completion's token usage (OpenAI-style ``usage`` object or None)."""
+        if usage is None:
+            return
+        prompt = getattr(usage, "prompt_tokens", None) or 0
+        completion = getattr(usage, "completion_tokens", None) or 0
+        total = getattr(usage, "total_tokens", None)
+        self._tok["prompt_tokens"] += prompt
+        self._tok["completion_tokens"] += completion
+        self._tok["total_tokens"] += total if total is not None else (prompt + completion)
 
     # --- one control/tool step ----------------------------------------------------------
     def _dispatch(self, name, args, call_id, tools_by_name, runtime, env, store, planner_label, events, ad_messages):
@@ -180,7 +194,8 @@ class FidesFullPipeline(BasePipelineElement):
             if not store.has(vname):
                 return f"[error] no such variable {vname}", planner_label
             var = store.get(vname)
-            extracted = q_extract(self.q_client, self.q_model, var.value, str(question), list(fields))
+            extracted = q_extract(self.q_client, self.q_model, var.value, str(question),
+                                  list(fields), on_usage=self._add_usage)
             lines = []
             for f, v in extracted.items():
                 # Faithful to the paper: query_llm output is "returned in a new variable" and
@@ -262,6 +277,7 @@ class FidesFullPipeline(BasePipelineElement):
         for extra in ({"parallel_tool_calls": False, "temperature": 0.0}, {"temperature": 0.0}, {}):
             try:
                 completion = self.client.chat.completions.create(**kwargs, **extra)
+                self._add_usage(getattr(completion, "usage", None))
                 m = completion.choices[0].message
                 tool_calls = None
                 if getattr(m, "tool_calls", None):
