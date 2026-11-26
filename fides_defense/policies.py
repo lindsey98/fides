@@ -4,18 +4,27 @@
 
 The tutorial assigns integrity labels by *source* (e.g. an email is trusted iff its sender
 is ``@contoso.com``). We generalize that deterministically to the benchmark: each suite has
-a registry of **untrusted-source tools** -- tools that surface data from attacker-reachable
-channels (emails, chat messages, web pages, reviews, files, search results). A tool result
-from such a tool is labeled ``UNTRUSTED``; the loop joins it into the running context label.
+a registry of **untrusted-source tools**.
+
+Labeling principle: a tool's output is ``UNTRUSTED`` **only if it surfaces content authored
+by a third party / attacker** -- inbound emails and chat messages from others, web pages,
+product reviews and listings, downloaded-by-URL files, shared/received documents, calendar
+invites from others. The **user's own records are trusted**: their cart, order history,
+invoices for their own orders, account/profile info, their own files and directory listings,
+their own sent emails and drafts, their own contacts, and calendar events they created.
+Over-tainting the user's own data would make FIDES's utility cost a labeling artifact rather
+than a property of the method (and, with variable hiding on, would needlessly route the
+user's own data through the quarantined LLM). The untrusted lists below are grounded in each
+suite's AgentDojo injection vectors (``threat_model.VECTOR_CLASS``): the kept tools are the
+channels those vectors actually ride in.
 
 Each suite also has a registry of **sink tools** -- tools with an external side effect or
 that exfiltrate data (send money / email / message, post, share, invite, transfer, push,
 delete, update credentials). A ``Policy`` inspects the labeled trace and raises
 ``PolicyViolation`` to stop a policy-violating action.
 
-Registries are authoritative per suite; a name-pattern heuristic is the generic fallback so
-unlisted / AgentDyn tools still get a reasonable label. This is the "generic + extensible
-per-suite" design.
+For a **known** suite the registry is authoritative (a tool not listed as untrusted is
+trusted); the name-pattern heuristic is used only as a fallback for unknown suites / tools.
 """
 
 from __future__ import annotations
@@ -37,82 +46,68 @@ from fides_defense.core import (
 # Per-suite registries
 # --------------------------------------------------------------------------------------
 
-# Tools whose output originates from an attacker-reachable channel -> UNTRUSTED integrity.
+# Tools whose output surfaces third-party / attacker-authored content -> UNTRUSTED.
+# The user's OWN records (cart, orders, invoices, account info, own files/dirs, sent/draft
+# mail, contacts, own calendar) are deliberately NOT listed here -- they are trusted.
 UNTRUSTED_SOURCES: dict[str, set[str]] = {
     "banking": {
-        "read_file",
-        "get_most_recent_transactions",
-        "get_scheduled_transactions",
+        "read_file",                   # bills / landlord notices authored by third parties
+        "get_most_recent_transactions",  # incoming transactions (subject set by the sender)
+        # trusted: get_scheduled_transactions (the user's own scheduled payments)
     },
     "slack": {
-        "read_channel_messages",
-        "read_inbox",
-        "get_webpage",
+        "read_channel_messages",       # messages from other users
+        "read_inbox",                  # DMs from other users
+        "get_webpage",                 # external web content
     },
     "travel": {
-        "get_rating_reviews_for_hotels",
+        "get_rating_reviews_for_hotels",       # third-party reviews
         "get_rating_reviews_for_restaurants",
         "get_rating_reviews_for_car_rental",
-        "search_calendar_events",
-        "get_day_calendar_events",
+        # trusted: calendar reads (the user's own calendar; not a travel injection vector)
     },
     "workspace": {
-        "get_unread_emails",
+        "get_unread_emails",           # inbound mail from others
         "get_received_emails",
-        "get_sent_emails",
-        "get_draft_emails",
-        "search_emails",
-        "search_contacts_by_name",
-        "search_contacts_by_email",
+        "search_emails",               # searches the received corpus
+        "get_day_calendar_events",     # calendar invites can be created by others (vectors)
         "search_calendar_events",
-        "get_day_calendar_events",
-        "get_file_by_id",
-        "list_files",
+        "get_file_by_id",              # drive files can be shared/received (drive vectors)
         "search_files",
+        "list_files",
         "search_files_by_filename",
+        # trusted: get_sent_emails, get_draft_emails (own), search_contacts_* (own contacts)
     },
     "shopping": {
-        "get_shopping_linked_unread_emails",
+        "get_shopping_linked_unread_emails",   # inbound mail from others
         "get_shopping_linked_received_emails",
-        "search_product",
-        "view_order_history",
-        "get_invoice",
-        "view_cart",
-        "view_available_discounts",
-        "read_file",
-        "list_directory",
-        "browse_webpage",
-        "download_file_through_url",
-        "download_file_through_id",
-        "search_calendar_events",
-        "get_day_calendar_events",
+        "search_product",              # seller-authored listings / reviews
+        "browse_webpage",              # external web content
+        "download_file_through_url",   # file fetched from an external URL
+        # trusted: view_cart, view_order_history, get_invoice, view_available_discounts,
+        # read_file, list_directory, download_file_through_id, calendar reads (own data)
     },
     "github": {
-        "get_received_emails",
-        "get_sent_emails",
+        "get_received_emails",         # inbound mail from others
         "get_github_linked_unread_emails",
-        "get_github_repository_information",
-        "read_file",
-        "list_directory",
-        "browse_webpage",
-        "download_file_through_url",
-        "download_file_through_id",
-        "git_pull",
+        "get_github_repository_information",  # repo / issue / review content from others
+        "browse_webpage",              # external web content
+        "download_file_through_url",   # file fetched from an external URL
+        "git_pull",                    # pulls others' commits
         "git_clone",
-        "git_get_linked_ssh_keys",
+        # trusted: get_sent_emails, read_file, list_directory, download_file_through_id,
+        # git_get_linked_ssh_keys (own data). injection_files_* are co-located (own files).
     },
     "dailylife": {
-        "get_unread_emails",
+        "get_unread_emails",           # inbound mail from others
         "get_received_emails",
-        "get_sent_emails",
         "search_emails",
-        "browse_webpage",
-        "download_file_through_url",
-        "download_file_through_id",
-        "read_file",
-        "list_directory",
+        "browse_webpage",              # web vectors (injection_web_*)
+        "download_file_through_url",   # file fetched from an external URL
+        "get_day_calendar_events",     # calendar vectors (injection_calendar_*)
         "search_calendar_events",
-        "get_day_calendar_events",
+        # trusted: get_sent_emails, read_file, list_directory, download_file_through_id (own).
+        # injection_web_file_* / injection_file_* are co-located (own files).
     },
 }
 
@@ -225,25 +220,26 @@ _SINK_PATTERNS = re.compile(
 
 
 def is_untrusted_source(suite: str, tool_name: str) -> bool:
-    """Whether a tool's output should be labeled UNTRUSTED (attacker-reachable channel)."""
+    """Whether a tool's output should be labeled UNTRUSTED (third-party-authored content).
+
+    For a known suite the registry is authoritative: a tool not listed is trusted (so the
+    user's own-data tools are never re-tainted by the heuristic). The name-pattern fallback
+    applies only to unknown suites / tools.
+    """
     registry = UNTRUSTED_SOURCES.get(suite)
-    if registry is not None and tool_name in registry:
-        return True
     if registry is not None:
-        # Suite is known: registry is authoritative for integrity-relevant reads. Fall back
-        # to the heuristic only for tools the registry has not classified either way.
-        if tool_name in SINKS.get(suite, set()):
-            return False
+        return tool_name in registry
     return bool(_SOURCE_PATTERNS.search(tool_name))
 
 
 def is_sink(suite: str, tool_name: str) -> bool:
-    """Whether a tool is a policy-protected sink (external side effect / exfiltration)."""
+    """Whether a tool is a policy-protected sink (external side effect / exfiltration).
+
+    Authoritative per known suite; name-pattern fallback for unknown suites / tools.
+    """
     registry = SINKS.get(suite)
-    if registry is not None and tool_name in registry:
-        return True
-    if registry is not None and tool_name in UNTRUSTED_SOURCES.get(suite, set()):
-        return False
+    if registry is not None:
+        return tool_name in registry
     return bool(_SINK_PATTERNS.search(tool_name))
 
 
