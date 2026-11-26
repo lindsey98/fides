@@ -131,10 +131,12 @@ class _CaptureMessages:
     def __init__(self):
         self.messages = []
         self.fides_events = []
+        self.pllm_messages = []
 
     def query(self, query, runtime, env, messages, extra_args={}):
         self.messages = list(messages)
         self.fides_events = list(extra_args.get("fides_events", []))
+        self.pllm_messages = list(extra_args.get("pllm_messages", []))
         return query, runtime, env, messages, extra_args
 
 
@@ -213,7 +215,7 @@ def main() -> None:
                     continue
 
                 injections = attack.attack(user_task, injection_task) if (attack and injection_task is not None) else {}
-                capture.messages, capture.fides_events = [], []
+                capture.messages, capture.fides_events, capture.pllm_messages = [], [], []
                 t0 = time.time()
                 err = None
                 try:
@@ -245,6 +247,7 @@ def main() -> None:
                     "policy": (args.policy if args.defense == "fides" else None),
                     "fides_events": capture.fides_events,
                     "conversations": capture.messages,
+                    "pllm_conversation": capture.pllm_messages,
                     "benchmark_version": args.benchmark_version,
                     "utility": utility,
                     "security": security,

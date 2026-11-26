@@ -154,6 +154,12 @@ class FidesFullPipeline(BasePipelineElement):
         )
         extra_args = dict(extra_args)
         extra_args["fides_events"] = events
+        # P-LLM-side trace: the planner's actual conversation -- hidden renders (`<rN: ...,
+        # UNTRUSTED>`), the per-step VARIABLES table, and the raw tool-call arguments the model
+        # emitted (so a sink arg shows as a {"kind":"value"} literal vs {"kind":"variable_name"}
+        # reference). Complements `conversations`, which is the AgentDojo side (resolved args, raw
+        # tool outputs).
+        extra_args["pllm_messages"] = pllm
         return query, runtime, env, ad_messages, extra_args
 
     # --- one control/tool step ----------------------------------------------------------
@@ -177,7 +183,11 @@ class FidesFullPipeline(BasePipelineElement):
             extracted = q_extract(self.q_client, self.q_model, var.value, str(question), list(fields))
             lines = []
             for f, v in extracted.items():
-                nv = store.put(v, var.label, origin=f"q_extract({vname}).{f}", show_value=True)
+                # Faithful to the paper: query_llm output is "returned in a new variable" and
+                # passed BY REFERENCE -- the planner never sees the extracted value, so it cannot
+                # re-emit it as a trusted literal (no label laundering). It carries its source's
+                # (untrusted) label and is enforced at any sink.
+                nv = store.put(v, var.label, origin=f"q_extract({vname}).{f}", show_value=False)
                 lines.append(nv.handle())
             events.append({"type": "q_extract", "var": vname, "fields": list(fields), "label": repr(var.label)})
             return "Quarantined extraction produced:\n" + "\n".join(lines), planner_label
