@@ -46,6 +46,8 @@ class Variable:
     label: Label
     origin: str = ""               # e.g. "read_inbox" or "q_extract" -- for the handle / logs
     show_value: bool | None = None  # show the value inline in the handle; default: only if trusted.
+    render: str | None = None      # explicit handle body (node-level-hidden structure: trusted fields
+    #                                visible, untrusted fields shown as sub-variable handles).
     # q_extract results are untrusted but show_value=True: the quarantined LLM already reduced the
     # raw content to constrained typed fields, so they are safe to show as DATA -- and any USE of
     # them still goes by labeled reference, so sinks remain policy-governed.
@@ -63,7 +65,9 @@ class Variable:
         tag = "UNTRUSTED" if self.untrusted else "TRUSTED"
         shape = describe_value(self.value)
         base = f"{self.name} = {self.origin or 'value'}  # {shape}, {tag}"
-        if self._shown:
+        if self.render is not None:
+            base += f"\n    {self.render}"
+        elif self._shown:
             v = str(self.value)
             base += f"\n    value: {v if len(v) <= 500 else v[:500] + ' …(truncated)'}"
         else:
@@ -81,9 +85,9 @@ class VarStore:
         return f"r{self._counter}"
 
     def put(self, value: Any, label: Label, origin: str = "", name: str | None = None,
-            show_value: bool | None = None) -> Variable:
+            show_value: bool | None = None, render: str | None = None) -> Variable:
         name = name or self.new_name()
-        var = Variable(name=name, value=value, label=label, origin=origin, show_value=show_value)
+        var = Variable(name=name, value=value, label=label, origin=origin, show_value=show_value, render=render)
         self._vars[name] = var
         return var
 

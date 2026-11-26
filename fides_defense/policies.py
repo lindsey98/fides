@@ -219,6 +219,28 @@ _SINK_PATTERNS = re.compile(
 )
 
 
+# Field-level labels (the paper labels FIELDS, not whole results: a field attacked by at least
+# one injection task is untrusted -- e.g. the email body -- while trusted metadata like the sender
+# address stays visible to the planner). Within an untrusted-source result, only values under these
+# keys are hidden; everything else is shown. A bare-string result (web page, file, review text) has
+# no fields and is hidden whole.
+UNTRUSTED_FIELDS: dict[str, set[str]] = {
+    "banking": {"subject"},                                  # transaction subject
+    "slack": {"body", "message"},                            # message body
+    "travel": {"reviews", "review"},                         # review text
+    "workspace": {"body", "content", "description"},         # email body, file content, event description
+    "shopping": {"body", "content", "description", "reviews", "review"},
+    "github": {"body", "content", "description"},
+    "dailylife": {"body", "content", "description"},
+}
+_DEFAULT_UNTRUSTED_FIELDS = {"body", "content", "message", "description", "text", "review", "reviews", "html", "snippet"}
+
+
+def field_is_untrusted(suite: str, key: str) -> bool:
+    """Whether a dict key holds untrusted content (paper: a field attacked by an injection task)."""
+    return key in UNTRUSTED_FIELDS.get(suite, _DEFAULT_UNTRUSTED_FIELDS)
+
+
 def is_untrusted_source(suite: str, tool_name: str) -> bool:
     """Whether a tool's output should be labeled UNTRUSTED (third-party-authored content).
 
