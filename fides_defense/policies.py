@@ -307,3 +307,23 @@ def make_policy(name: str, suite: str) -> Policy:
 
 
 POLICIES = ("no_untrusted_sink", "no_untrusted_url", "none")
+
+
+def check_sink_call(policy_name: str, suite: str, tool_name: str, arg_label: Label, resolved_args: dict) -> None:
+    """Per-argument sink policy for the full (variable-passing) planner.
+
+    Unlike the base planner's context-level check, here ``arg_label`` is the join of just the
+    labels of the arguments actually flowing into this call (a literal carries the planner's
+    current context label; a variable reference carries that variable's label). So reading an
+    untrusted email does not block a later sink whose arguments are all trusted -- only untrusted
+    data flowing *into* the sink is stopped. Raises ``PolicyViolation`` to block.
+    """
+    if policy_name == "none" or not is_sink(suite, tool_name):
+        return
+    if policy_name == "no_untrusted_url":
+        if label_is_untrusted(arg_label) and contains_url(_args_text(resolved_args)):
+            raise PolicyViolation(f"untrusted data flows a URL into sink `{tool_name}`")
+        return
+    # Default: no_untrusted_sink
+    if label_is_untrusted(arg_label):
+        raise PolicyViolation(f"untrusted data must not flow into sink `{tool_name}`")

@@ -95,3 +95,42 @@ def build_llm(model_name: str) -> BasePipelineElement:
         api_key=os.getenv("OPENROUTER_API_KEY"), base_url="https://openrouter.ai/api/v1"
     )
     return OpenAILLM(client, model_name)
+
+
+def build_raw_client(model_name: str):
+    """Return ``(openai_compatible_client, model_id)`` for the full FIDES planner.
+
+    The full planner drives the client directly (variable-passing tool schemas + structured
+    outputs), which needs an OpenAI-compatible endpoint. Supported routes: ``openai:<name>``,
+    ``gpt-*`` (OPENAI_API_KEY[/OPENAI_BASE_URL]), ``org/model`` (OpenRouter), and
+    ``local:<name>`` / a bare served name (LOCAL_API_BASE). Anthropic/Google native models are
+    not supported here -- use ``--planner labeled_basic`` for those, or route them through an
+    OpenAI-compatible gateway (``openai:<name>`` + OPENAI_BASE_URL).
+    """
+    import openai
+
+    name = model_name.lower()
+    if model_name.startswith("openai:"):
+        return openai.OpenAI(), model_name.split("openai:", 1)[-1]
+    if model_name.startswith("gpt-"):
+        return openai.OpenAI(), model_name
+    if model_name.startswith("gemini-") and os.getenv("OPENAI_BASE_URL"):
+        return openai.OpenAI(), model_name
+    if model_name.startswith(("anthropic:", "claude")) or name.startswith("gemini-"):
+        raise ValueError(
+            f"--planner full needs an OpenAI-compatible endpoint; `{model_name}` is a native "
+            "Anthropic/Google model. Use --planner labeled_basic, or route it through an "
+            "OpenAI-compatible gateway as openai:<name> with OPENAI_BASE_URL set."
+        )
+    if model_name.startswith("local:") or "/" not in model_name:
+        import httpx
+
+        model = model_name.split("local:", 1)[-1]
+        client = openai.OpenAI(
+            api_key=os.getenv("LOCAL_API_KEY", "EMPTY"),
+            base_url=os.getenv("LOCAL_API_BASE", "http://localhost:8000/v1"),
+            http_client=httpx.Client(trust_env=False),
+        )
+        return client, model
+    # org/model -> OpenRouter
+    return openai.OpenAI(api_key=os.getenv("OPENROUTER_API_KEY"), base_url="https://openrouter.ai/api/v1"), model_name

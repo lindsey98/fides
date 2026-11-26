@@ -55,6 +55,10 @@ def parse_args() -> argparse.Namespace:
                    help="'fides' (IFC taint-tracking + policy) or 'none' (undefended original model).")
     p.add_argument("--policy", type=str, default="no_untrusted_sink", choices=list(POLICIES),
                    help="FIDES policy: no_untrusted_sink (default), no_untrusted_url (tutorial's policy_no_untrusted_url), or none (taint-track only).")
+    p.add_argument("--planner", type=str, default="full", choices=["full", "labeled_basic"],
+                   help="FIDES planner (with --defense fides): 'full' = variable hiding + quarantined LLM + per-argument policy "
+                        "(the paper's planner; needs an OpenAI-compatible endpoint); 'labeled_basic' = the tutorial's "
+                        "LabeledBasicPlanner (context-level taint + policy; works with every provider).")
     p.add_argument("--user-task", "-ut", dest="user_tasks", type=str, nargs="*", default=None, help="User task ids/numbers to run (default: all).")
     p.add_argument("--injection-task", "-it", dest="injection_tasks", type=str, nargs="*", default=None, help="Injection task ids/numbers to run (default: all).")
     p.add_argument("--force-rerun", "-f", dest="force_rerun", action="store_true", help="Re-run tasks even if a cached result JSON exists.")
@@ -75,7 +79,11 @@ def model_dir_name(args) -> str:
             base = base[len(pre):]
             break
     base = base.replace("/", "_").replace(":", "_")
-    return f"{base}+fides" if args.defense == "fides" else base
+    if args.defense != "fides":
+        return base
+    # The full (paper) planner is the default and keeps the plain '+fides' dir; the
+    # tutorial's labeled_basic planner gets its own dir so the two don't collide.
+    return f"{base}+fides" if args.planner == "full" else f"{base}+fides-basic"
 
 
 def _norm_id(t, prefix):
@@ -145,7 +153,18 @@ def main() -> None:
     from agentdojo.task_suite import get_suite
     import agentdojo.attacks  # noqa: F401 -- populate the attack registry (incl. fork attacks)
 
-    llm = build_llm(args.model)
+    use_full = args.defense == "fides" and args.planner == "full"
+    if use_full:
+        from fides_defense.models import build_raw_client
+        from fides_defense.planner_full import FidesFullPipeline
+        from agentdojo.agent_pipeline.agent_pipeline import load_system_message
+
+        raw_client, raw_model = build_raw_client(args.model)
+        base_sys = load_system_message(None)
+        llm = None
+    else:
+        llm = build_llm(args.model)
+
     logdir = Path(args.logdir)
     mdir = model_dir_name(args)
     run_label = args.attack if args.run_attack else "none"
@@ -156,12 +175,19 @@ def main() -> None:
     total_utility, total_security = [], []
 
     for suite_name in args.suites:
-        policy = make_policy(args.policy, suite_name)
         capture = _CaptureMessages()
-        base_pipeline = make_fides_pipeline(llm, args.model, suite_name, policy, args.defense, max_iters=args.max_iters)
-        # Append the message-capture element; keep the pipeline name = real model so the
-        # attack addresses the right victim (the fork degrades gracefully for unknown names).
-        pipeline = AgentPipeline([*base_pipeline.elements, capture])
+        if use_full:
+            inner = FidesFullPipeline(
+                raw_client, raw_model, suite_name, policy_name=args.policy,
+                max_iters=args.max_iters, base_system_message=base_sys,
+            )
+            pipeline = AgentPipeline([inner, capture])
+        else:
+            policy = make_policy(args.policy, suite_name)
+            base_pipeline = make_fides_pipeline(llm, args.model, suite_name, policy, args.defense, max_iters=args.max_iters)
+            pipeline = AgentPipeline([*base_pipeline.elements, capture])
+        # Keep the pipeline name = real model so the attack addresses the right victim
+        # (the fork degrades gracefully for unknown names).
         pipeline.name = args.model
 
         suite = get_suite(args.benchmark_version, suite_name)
@@ -219,6 +245,7 @@ def main() -> None:
                     "attack_type": (args.attack if args.run_attack else None),
                     "injections": injections,
                     "defense": args.defense,
+                    "planner": (args.planner if args.defense == "fides" else None),
                     "policy": (args.policy if args.defense == "fides" else None),
                     "fides_events": capture.fides_events,
                     "conversations": capture.messages,

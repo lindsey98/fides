@@ -24,24 +24,39 @@ tutorial's information-flow-control (IFC) planning loop over the
 It exposes the **same command-line interface** as the sibling prompt-injection baselines
 (CaMeL, DRIFT), so results are directly comparable.
 
-The IFC core (`fides_defense/lattice.py`, `fides_defense/core.py`) is a faithful port of the
-tutorial — the lattices, labeled context, dynamic taint-tracking loop, and policies are not
-re-designed. Only a thin adapter (`fides_defense/pipeline.py`) binds that loop to AgentDojo's
-runtime, tools, and scoring harness.
+The IFC core (`fides_defense/lattice.py`, `fides_defense/core.py`) ports the tutorial's
+lattices and labeled context. Two planners are provided (`--planner`):
 
-### How the tutorial maps onto the benchmark
+- **`full`** (default) — the paper's planner: **variable hiding** (the privileged planner
+  never sees raw untrusted content; tool results are stored as labeled variables and passed
+  by reference), a **quarantined LLM** (reads untrusted data in isolation and returns typed
+  values), and a **per-argument policy** (a sink is blocked only when untrusted data actually
+  flows *into it*). This recovers utility: reading an untrusted email no longer blocks an
+  unrelated trusted action. It drives an OpenAI-compatible client directly and lives in
+  `fides_defense/planner_full.py` / `varstore.py` / `quarantined.py` / `schemas.py`.
+- **`labeled_basic`** — the tutorial's `LabeledBasicPlanner`: context-level dynamic
+  taint-tracking + policy, a faithful port of the notebook (`fides_defense/pipeline.py`).
+  Works with every provider (native tool-calling via AgentDojo's LLM layer).
 
-| Tutorial concept | Benchmark realization |
+> **Scope note.** The tutorial itself only ships the base `LabeledBasicPlanner` (and a
+> *non*-IFC variable-passing planner, shown as the attackable example). The `full` planner
+> combines variable passing + labels + a quarantined LLM per the **paper**, so it goes beyond
+> the notebook's code. Use `labeled_basic` if you want the strictly notebook-faithful version;
+> its utility is a lower bound (no hiding / quarantine).
+
+### How the tutorial / paper map onto the benchmark
+
+| FIDES concept | Benchmark realization |
 | --- | --- |
-| `LabeledPlanningLoop` (taint-tracking + policy) | `FidesToolsLoop`, an AgentDojo pipeline element that replaces the stock tools loop |
-| Integrity label by **source** (e.g. sender `@contoso.com` ⇒ trusted) | per-suite registry of **untrusted-source tools** in `fides_defense/policies.py` (emails, chat, web pages, reviews, files, search results ⇒ `UNTRUSTED`), with a name-pattern fallback for unlisted / AgentDyn tools |
-| `policy_no_untrusted_*` raising `PolicyViolation` | a `Policy` evaluated **before** each tool call; a violation deterministically blocks the call (the model gets a refusal tool result, the sink never runs) |
-| "Query / ToolCall / Response" actions | model turn delegated to AgentDojo's native-tool-calling LLM element; tool calls run via `runtime.run_function`; loop ends when the model stops calling tools |
+| Integrity label by **source** (e.g. sender `@contoso.com` ⇒ trusted) | per-suite registry of **untrusted-source tools** in `fides_defense/policies.py`. A tool is `UNTRUSTED` only if it surfaces **third-party-authored** content (inbound mail, chat from others, web pages, reviews, URL downloads, shared docs, calendar invites); the user's own data (cart, orders, account info, own files, sent/draft mail, contacts, own calendar) is **trusted**. Lists are grounded in each suite's injection vectors (`threat_model.VECTOR_CLASS`). |
+| **Variable hiding** (planner never reads untrusted content) | `full` planner: tool results become labeled variables (`varstore.py`); the planner sees handles, passes them by reference via the tutorial's `anyOf[value, variable_name]` schema (`schemas.py`) |
+| **Quarantined LLM** | `q_extract` (`quarantined.py`): a separate, tool-less model call reads one untrusted variable in isolation, ignores instructions in the data, and returns typed fields (labeled untrusted) |
+| **Policy** raising `PolicyViolation` | `full`: per-argument check before a sink runs (`check_sink_call`) — blocks only when untrusted data flows into the sink. `labeled_basic`: context-level check before each tool call. A blocked sink never executes (and is excluded from the scored call trace). |
+| Query / ToolCall / Response | `full` drives an OpenAI-compatible client directly; `labeled_basic` delegates the model turn to AgentDojo's native-tool-calling LLM element. Tools run via `runtime.run_function`, mutating the environment for scoring. |
 
 Labels are assigned by **data source**, deterministically and independently of whether an
-attack is present (the untrusted-source registry marks attacker-reachable channels per suite,
-derived from AgentDojo's injection vectors). This is the "generic + extensible per-suite"
-design: the per-suite registries are authoritative, and the generic heuristic is the fallback.
+attack is present. This is the "generic + extensible per-suite" design: the per-suite
+registries are authoritative, and the generic heuristic is the fallback.
 
 ### Setup
 
@@ -79,8 +94,12 @@ python -c "from agentdojo.task_suite.load_suites import get_suites; print(sorted
 | `meta-llama/llama-3.3-70b-instruct` | OpenRouter (`OPENROUTER_API_KEY`) |
 | `local:Qwen3-30B-A3B-Instruct-2507` or a bare served name | local OpenAI-compatible server (`LOCAL_API_BASE`, `LOCAL_API_KEY`) |
 
-FIDES uses the model's **native** tool-calling API. For a local server without native tool
-support, set `FIDES_LOCAL_PROMPTED=1` to use AgentDojo's prompted tool-call path instead.
+FIDES uses the model's **native** tool-calling API. The default **`--planner full`** drives an
+OpenAI-compatible client directly, so it supports `gpt-*`, `openai:<name>` (custom endpoint),
+`org/model` (OpenRouter) and `local:`/bare names — but **not** native `anthropic:`/`gemini-*`
+(use `--planner labeled_basic` for those, or route them through an OpenAI-compatible gateway
+with `openai:<name>` + `OPENAI_BASE_URL`). `--planner labeled_basic` works with every provider;
+for a local server without native tool support, set `FIDES_LOCAL_PROMPTED=1`.
 
 > **Note (Anthropic):** AgentDojo's native `AnthropicLLM` targets the anthropic 0.x/1.x
 > Messages API and breaks on `anthropic>=2.x` (where `MessageParam` is no longer
@@ -110,7 +129,8 @@ Key flags (full list: `python main.py --help`):
 
 | Flag | Meaning |
 | --- | --- |
-| `--defense {fides,none}` | `fides` = IFC taint-tracking + policy; `none` = undefended original model |
+| `--defense {fides,none}` | `fides` = the FIDES defense; `none` = undefended original model |
+| `--planner {full,labeled_basic}` | `full` (default) = variable hiding + quarantined LLM + per-arg policy (OpenAI-compatible endpoints); `labeled_basic` = the tutorial's context-level planner (any provider) |
 | `--run-attack` | run under attack and also report security; omit for benign utility only |
 | `--attack NAME` | any registered AgentDojo attack (default `important_instructions`; also `tool_knowledge`, `ignore_previous`, `direct`, `dos`, `chat_inject_*`, …) |
 | `--suite ...` | space-separated suites (default: the original four) |
