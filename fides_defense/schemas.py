@@ -129,17 +129,36 @@ def control_tools(var_names: list[str]) -> list[dict]:
     ]
 
 
+class UnknownVariable(Exception):
+    """A tool argument referenced a variable name that isn't in the store.
+
+    Raised (instead of letting a KeyError crash the whole task) when the planner passes a
+    ``variable_name`` that doesn't exist -- most often a hallucinated field access like
+    ``r1.first_name``. The dispatcher catches it and returns a corrective note to the planner so
+    the run continues (variables hold whole values; a field is obtained via ``q_extract``).
+    """
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        super().__init__(name)
+
+
 def resolve_one(arg: Any, store) -> tuple[Any, Any]:
     """Resolve one variable-passing argument to ``(real_value, label_or_None)``.
 
     ``label`` is the referenced variable's label when the arg is a reference, else None (a literal,
     whose trust is the planner's current context label -- supplied by the caller).
+
+    Raises :class:`UnknownVariable` if a ``variable_name`` reference names a missing variable.
     """
     if isinstance(arg, dict) and "kind" in arg:
         if arg["kind"] == "value":
             return arg.get("value"), None
         if arg["kind"] == "variable_name":
-            var = store.get(arg["value"])
+            name = arg["value"]
+            if not store.has(name):
+                raise UnknownVariable(name)
+            var = store.get(name)
             return var.value, var.label
     # Tolerate a model that passed a bare value or a bare variable name.
     if isinstance(arg, str) and store.has(arg):

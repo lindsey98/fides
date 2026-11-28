@@ -38,7 +38,7 @@ from agentdojo.types import (
 from fides_defense.core import Label, PolicyViolation, trusted_public
 from fides_defense.policies import check_sink_call, is_untrusted_source
 from fides_defense.quarantined import q_extract
-from fides_defense.schemas import control_tools, resolve_one, tool_schema_var
+from fides_defense.schemas import UnknownVariable, control_tools, resolve_one, tool_schema_var
 from fides_defense.varstore import VarStore
 
 FIDES_PROTOCOL = """You are a careful planning agent protected by an information-flow-control \
@@ -213,10 +213,23 @@ class FidesFullPipeline(BasePipelineElement):
 
         resolved: dict[str, Any] = {}
         arg_label = trusted_public()
-        for k, v in args.items():
-            val, ref_label = resolve_one(v, store)
-            resolved[k] = val
-            arg_label = arg_label.join(ref_label if ref_label is not None else planner_label)
+        try:
+            for k, v in args.items():
+                val, ref_label = resolve_one(v, store)
+                resolved[k] = val
+                arg_label = arg_label.join(ref_label if ref_label is not None else planner_label)
+        except UnknownVariable as uv:
+            # The planner referenced a variable that doesn't exist -- usually a hallucinated field
+            # access like `r1.first_name`. Don't crash the task: return a corrective note so the
+            # planner retries with the right primitive (variables are whole values; a field is
+            # pulled out via q_extract, or the variable inspected via read_variable).
+            events.append({"type": "error", "tool": name, "reason": f"unknown variable {uv.name}"})
+            return (
+                f"[error] unknown variable '{uv.name}'. Variables hold a WHOLE value; there is no "
+                f"field access such as `{uv.name}`. To get a specific field out of a variable, call "
+                f"q_extract(name, question, fields); to read a variable yourself, call "
+                f"read_variable(name). Then retry `{name}` passing the resulting variable by reference."
+            ), planner_label
 
         # Per-argument sink policy (deterministic enforcement).
         try:
